@@ -5,29 +5,21 @@ import { ref } from 'vue';
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null);
-  const token = ref<string | null>(null);
   const isAuthenticated = ref(false);
   const loading = ref(false);
   const error = ref<string | null>(null);
   const isInitialized = ref(false);
-
-  // Load the token from localStorage on initialization
-  const storedToken = localStorage.getItem('directus_token');
-  if (storedToken) {
-    token.value = storedToken;
-    isAuthenticated.value = true;
-  }
 
   async function login(credentials: { email: string; password: string }) {
     loading.value = true;
     error.value = null;
     
     try {
+      // The directus.login() method will handle token storage automatically
+      // via the LocalStorage class we defined in directus.ts
       const response = await directus.login(credentials.email, credentials.password);
       if (response?.access_token) {
-        token.value = response.access_token;
         isAuthenticated.value = true;
-        localStorage.setItem('directus_token', response.access_token);
         
         // Fetch current user data
         await fetchCurrentUser();
@@ -45,12 +37,14 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function fetchCurrentUser() {
-    if (!isAuthenticated.value) return null;
-    
     try {
-      const me = await directus.request(
-        readMe()
-      );
+      // getToken will return null if no valid token exists
+      const token = await directus.getToken();
+      isAuthenticated.value = !!token;
+      
+      if (!isAuthenticated.value) return null;
+      
+      const me = await directus.request(readMe());
       
       // Ensure type safety for the user object
       if (me && typeof me === 'object' && 'email' in me) {
@@ -75,35 +69,39 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function logout() {
     try {
-      if (isAuthenticated.value) {
-        await directus.logout();
-      }
+      // The SDK will clear tokens automatically
+      await directus.logout();
     } catch (err) {
       console.error('Logout error:', err);
     } finally {
       // Clear local state even if the API call fails
-      token.value = null;
       user.value = null;
       isAuthenticated.value = false;
-      localStorage.removeItem('directus_token');
     }
   }
 
   // Initialize - check if user has a valid token
   async function init() {
-    if (token.value) {
+    if (!isInitialized.value) {
       try {
-        await fetchCurrentUser();
+        // Check if we have a valid token
+        const token = await directus.getToken();
+        isAuthenticated.value = !!token;
+        
+        if (isAuthenticated.value) {
+          await fetchCurrentUser();
+        }
       } catch (err) {
         console.error('Token validation error:', err);
         await logout();
+      } finally {
+        isInitialized.value = true;
       }
     }
   }
 
   return {
     user,
-    token,
     isAuthenticated,
     loading,
     error,

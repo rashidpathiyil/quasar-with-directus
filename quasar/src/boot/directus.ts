@@ -6,7 +6,8 @@ import {
   readItems,
   readMe,
   rest,
-  updateItem as updateItemOperation
+  updateItem as updateItemOperation,
+  type AuthenticationData
 } from '@directus/sdk';
 import { boot } from 'quasar/wrappers';
 import { DIRECTUS_URL } from 'src/config/directus';
@@ -29,15 +30,35 @@ export interface Item {
   // Add more fields as needed
 }
 
-// Create a Directus client
+// Custom storage to integrate with localStorage
+class LocalStorage {
+  get(): AuthenticationData | null {
+    const authData = localStorage.getItem('directus_auth_data');
+    return authData ? JSON.parse(authData) : null;
+  }
+  
+  set(data: AuthenticationData | null): void {
+    if (data) {
+      localStorage.setItem('directus_auth_data', JSON.stringify(data));
+    } else {
+      localStorage.removeItem('directus_auth_data');
+    }
+  }
+}
+
+// Create a Directus client with authentication that persists tokens
 const directus = createDirectus<{
   directus_users: User[];
   items: Item[];
 }>(DIRECTUS_URL)
   .with(rest())
-  .with(authentication());
+  .with(authentication('json', { 
+    storage: new LocalStorage(),
+    autoRefresh: true, // Enable automatic token refreshing
+  }));
 
 export default boot(({ app }) => {
+  console.log('directus', directus);
   // Make directus available as $directus
   app.config.globalProperties.$directus = directus;
 });
